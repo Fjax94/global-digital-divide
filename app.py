@@ -77,7 +77,31 @@ h1, h2, h3, h4 { color: #f2f7ff !important; }
 .app-subtitle { color: #aabed9; font-size: 1.02rem; margin-bottom: 1.1rem; }
 .section-note { color: #9db2ce; font-size: .87rem; margin-top: -.35rem; }
 .source-note { color: #9caec7; font-size: .82rem; }
-/* Native Streamlit slider CSS is intentionally unchanged to keep thumb and track aligned. */
+/* The track correctly moves left-to-right, but this deployment mirrors only
+   BaseWeb's thumb layer. Mirror that layer back, leaving the fill untouched.
+   The immediate thumb parent is targeted, not the track or the whole slider. */
+[data-testid="stSlider"] [data-baseweb="slider"] div:has(> [role="slider"]) {
+    transform: scaleX(-1);
+    transform-origin: center center;
+}
+[data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] > div {
+    transform: scaleX(-1);
+}
+[data-testid="stSlider"] [data-baseweb="slider"],
+[data-testid="stSlider"] [data-testid="stTickBar"] {
+    direction: ltr;
+}
+.year-ends {
+    display: flex;
+    flex-direction: row;
+    direction: ltr;
+    justify-content: space-between;
+    font-size: .82rem;
+    color: #afc3db;
+    margin-top: -.4rem;
+    margin-bottom: .75rem;
+}
+
 @media (max-width: 700px) {
     .block-container { padding-left: 1rem; padding-right: 1rem; }
     [data-testid="stMetric"] { padding: 12px; }
@@ -220,7 +244,12 @@ with st.sidebar:
     else:
         selected_year = min_year
         st.caption(f"Only {min_year} is available in this dataset.")
-    st.caption(f"Oldest: {min_year}  ·  Newest: {max_year}")
+    st.markdown(
+        f'<div class="year-ends" dir="ltr">'
+        f'<span>{min_year} · Oldest</span>'
+        f'<span>Newest · {max_year}</span>'
+        f'</div>', unsafe_allow_html=True
+    )
     st.caption(f"Showing observations through **{selected_year}**")
 
     st.divider()
@@ -255,6 +284,31 @@ if selected_data.empty:
 
 selected_latest = latest_observed(selected_data, selected_year)
 
+# Stable country-to-color mapping, reused for every categorical chart.
+country_colors = {
+    country: COLORS[i % len(COLORS)]
+    for i, country in enumerate(sorted(selected_countries))
+}
+
+# Transparent growth calculations based only on actual first/last observations.
+first_records = (
+    selected_data.sort_values(["Code", "Year"])
+    .drop_duplicates("Code", keep="first")
+    [["Code", "Year", METRIC]]
+    .rename(columns={"Year": "First year", METRIC: "First (%)"})
+)
+country_stats = (
+    selected_latest[["Code", "Country", "Year", METRIC]]
+    .rename(columns={"Year": "Last year", METRIC: "Latest (%)"})
+    .merge(first_records, on="Code", how="left", validate="one_to_one")
+)
+country_stats["Change (pp)"] = (
+    country_stats["Latest (%)"] - country_stats["First (%)"]
+)
+country_stats["Years between"] = (
+    country_stats["Last year"] - country_stats["First year"]
+)
+
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Selected countries", len(selected_countries))
 k2.metric("Observations", f"{len(selected_data):,}")
@@ -265,12 +319,41 @@ k4.metric(
     help="Unweighted mean of the latest recorded values for selected countries, not a global average.",
 )
 
+# Extra insights show percentage-point changes, never invented missing years.
+top_access = country_stats.sort_values(
+    ["Latest (%)", "Country"], ascending=[False, True]
+).iloc[0]
+top_growth = country_stats.sort_values(
+    ["Change (pp)", "Country"], ascending=[False, True]
+).iloc[0]
+g1, g2, g3 = st.columns(3)
+g1.metric(
+    "Highest internet use",
+    f"{top_access['Latest (%)']:.1f}%",
+    help=f"{top_access['Country']} — reported {int(top_access['Last year'])}",
+)
+g2.metric(
+    "Largest recorded increase",
+    f"{top_growth['Change (pp)']:+.1f} pp",
+    help=f"{top_growth['Country']} — first available to last available observation",
+)
+g3.metric(
+    "Average recorded increase",
+    f"{country_stats['Change (pp)'].mean():+.1f} pp",
+    help="Unweighted average of selected countries' observed percentage-point changes.",
+)
+st.caption(
+    "Growth = latest available internet-use percentage minus the first available "
+    "percentage for each selected country. Periods differ by country; "
+    "these are percentage-point changes, not annual growth rates."
+)
+
 # Timeline: always chronological left -> right.
 st.markdown("### 📈 Internet access over time")
 line = px.line(
     selected_data.sort_values(["Country", "Year"]),
     x="Year", y=METRIC, color="Country", markers=True,
-    color_discrete_sequence=COLORS,
+    color_discrete_map=country_colors,
     hover_data={"Year": True, METRIC: ":.2f"},
 )
 line.update_traces(line=dict(width=3), marker=dict(size=5))
@@ -296,7 +379,7 @@ with left:
     bar_data = selected_latest.sort_values(METRIC, ascending=True)
     bars = px.bar(
         bar_data, x=METRIC, y="Country", orientation="h",
-        color="Country", color_discrete_sequence=COLORS,
+        color="Country", color_discrete_map=country_colors,
         text=METRIC,
     )
     bars.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
@@ -308,12 +391,40 @@ with left:
 
 with right:
     st.markdown("### 📋 Country comparison")
-    display = selected_latest[["Country", "Year", METRIC]].copy()
-    display[METRIC] = display[METRIC].round(2)
+    sort_choice = st.selectbox(
+        "Sort countries by",
+        [
+            "Internet use · highest first",
+            "Change · largest increase",
+            "Latest reporting year",
+            "Country · A to Z",
+        ],
+        key="country_table_sort_v2",
+    )
+    if sort_choice == "Change · largest increase":
+        ranked = country_stats.sort_values(
+            ["Change (pp)", "Country"], ascending=[False, True]
+        )
+    elif sort_choice == "Latest reporting year":
+        ranked = country_stats.sort_values(
+            ["Last year", "Country"], ascending=[False, True]
+        )
+    elif sort_choice == "Country · A to Z":
+        ranked = country_stats.sort_values("Country")
+    else:
+        ranked = country_stats.sort_values(
+            ["Latest (%)", "Country"], ascending=[False, True]
+        )
+    display = ranked[
+        ["Country", "Latest (%)", "Last year", "Change (pp)", "First year", "First (%)"]
+    ].copy()
+    display[["Latest (%)", "Change (pp)", "First (%)"]] = display[
+        ["Latest (%)", "Change (pp)", "First (%)"]
+    ].round(2)
     st.dataframe(display, hide_index=True, use_container_width=True)
     st.caption(
-        "Year is each country's latest observed year up to the selected cutoff. "
-        "Missing years are not estimated."
+        "Latest year can vary by country. Change (pp) compares each country's "
+        "first and latest observed percentages; missing years are never estimated."
     )
 
 st.download_button(
@@ -367,7 +478,31 @@ else:
         landcolor="#1e304b", bgcolor="rgba(0,0,0,0)",
         projection_type="natural earth",
     )
+    # Draw only a high-contrast country outline over the original country
+    # colors. No value or geography is changed in the underlying map.
+    map_fig.add_trace(
+        go.Choropleth(
+            locations=country_stats["Code"],
+            z=country_stats["Latest (%)"],
+            text=country_stats["Country"],
+            customdata=country_stats["Last year"],
+            locationmode="ISO-3",
+            zmin=0, zmax=100,
+            colorscale=[
+                [0.0, "#1a2a49"], [0.25, "#315c91"],
+                [0.55, "#259bad"], [0.80, "#42d4bd"], [1.0, "#a5f3db"],
+            ],
+            showscale=False,
+            marker_line_color="#ffdf73",
+            marker_line_width=2.6,
+            hovertemplate=(
+                "<b>%{text} · SELECTED</b><br>Internet use: %{z:.1f}%"
+                "<br>Recorded year: %{customdata}<extra></extra>"
+            ),
+        )
+    )
     map_fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    st.caption("Selected countries are outlined in gold; others remain on the world map.")
     st.plotly_chart(map_fig, use_container_width=True, theme=None)
 
 st.divider()
