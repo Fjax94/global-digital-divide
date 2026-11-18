@@ -1,157 +1,96 @@
+from pathlib import Path
 
-import streamlit as st
 import pandas as pd
-import requests
+import plotly.express as px
+import streamlit as st
 
-# Page configuration
 st.set_page_config(
     page_title="Global Digital Divide",
     page_icon="🌍",
-    layout="wide"
+    layout="wide",
 )
 
-# Dashboard title
-st.title("🌍 Global Digital Divide Dashboard")
-st.write(
-    "Explore global internet access using real "
-    "World Bank data from 2000 to 2025."
-)
+# Visual design: Modern Dark
+st.markdown("""
+<style>
+.stApp {
+    background: radial-gradient(circle at 0% 0%, #182b45 0%, #0a1020 55%, #080d18 100%);
+    color: #edf3ff;
+}
+section[data-testid="stSidebar"] {background-color: #101b2d;}
+div[data-testid="stMetric"] {
+    background: #15243b;
+    border: 1px solid #2b4160;
+    border-radius: 14px;
+    padding: 18px;
+}
+div[data-testid="stMetricValue"] {color: #5eead4;}
+h1, h2, h3 {color: #f3f6ff;}
+</style>
+""", unsafe_allow_html=True)
 
-# Countries to analyze
-COUNTRIES = [
-    "IRQ", "ITA", "BEL", "NLD", "CAN", "USA",
-    "DEU", "FRA", "IND", "ARE", "SAU", "JPN"
-]
+COUNTRIES = {
+    "IRQ": "Iraq", "ITA": "Italy", "BEL": "Belgium", "NLD": "Netherlands",
+    "CAN": "Canada", "USA": "United States", "DEU": "Germany",
+    "FRA": "France", "IND": "India", "ARE": "United Arab Emirates",
+    "SAU": "Saudi Arabia", "JPN": "Japan",
+}
 
-# Download data from the World Bank
-@st.cache_data(ttl=86400)
+@st.cache_data
+
 def load_data():
-    country_codes = ";".join(COUNTRIES)
-
-    url = (
-        "https://api.worldbank.org/v2/country/"
-        f"{country_codes}/indicator/IT.NET.USER.ZS"
+    path = Path(__file__).resolve().parent / "internet_usage.csv"
+    if not path.exists():
+        raise FileNotFoundError("internet_usage.csv is missing from your GitHub repository.")
+    raw = pd.read_csv(path)
+    required = {"Entity", "Code", "Year"}
+    if not required.issubset(raw.columns):
+        raise ValueError("The CSV must contain Entity, Code, and Year columns.")
+    value_cols = [c for c in raw.columns if c not in required]
+    if not value_cols:
+        raise ValueError("The CSV has no internet usage value column.")
+    data = raw[["Entity", "Code", "Year", value_cols[0]]].copy()
+    data.columns = ["Country", "Code", "Year", "Internet users (%)"]
+    data["Year"] = pd.to_numeric(data["Year"], errors="coerce")
+    data["Internet users (%)"] = pd.to_numeric(
+        data["Internet users (%)"], errors="coerce"
     )
+    data = data.dropna(subset=["Year", "Internet users (%)"])
+    data = data.loc[data["Code"].isin(COUNTRIES) & data["Year"].between(2000, 2025)].copy()
+    data["Year"] = data["Year"].astype(int)
+    data["Country"] = data["Code"].map(COUNTRIES)
+    if data.empty:
+        raise ValueError("No supported country records found in this file.")
+    return data
 
-    response = requests.get(
-        url,
-        params={
-            "format": "json",
-            "per_page": 1000,
-            "date": "2000:2025"
-        },
-        timeout=(10, 60)
-    )
-    response.raise_for_status()
+st.title("🌍 Global Digital Divide")
+st.markdown("**Internet access intelligence** · Country comparisons and historical trends")
+st.caption("Indicator: Individuals using the Internet (% of population), 2000–2025")
 
-    result = response.json()
-
-    if not isinstance(result, list) or not result[1]:
-        raise ValueError("No data received from the World Bank.")
-
-    rows = []
-
-    for item in result[1]:
-        if item["value"] is not None:
-            rows.append({
-                "Country": item["country"]["value"],
-                "Year": int(item["date"]),
-                "Internet users (%)": float(item["value"])
-            })
-
-    if not rows:
-        raise ValueError("No valid observations found.")
-
-    return pd.DataFrame(rows)
-
-
-# Load the dataset
 try:
-    with st.spinner("Loading World Bank data..."):
-        df = load_data()
-except (requests.RequestException, ValueError, KeyError) as error:
-    st.error(f"Unable to load data: {error}")
+    data = load_data()
+except (OSError, ValueError, pd.errors.ParserError) as error:
+    st.error(f"Data could not be loaded: {error}")
+    st.info("Upload the original Our World in Data CSV to the repository root as internet_usage.csv.")
     st.stop()
 
-# Country selection
-st.subheader("🌐 Select Countries")
-
-available = sorted(df["Country"].unique())
-
-default_countries = [
-    c for c in ["Iraq", "Italy", "Belgium"]
-    if c in available
-]
-
-selected = st.multiselect(
-    "Choose countries to compare:",
-    options=available,
-    default=default_countries
+st.sidebar.header("⚙️ Explore data")
+country_names = list(COUNTRIES.values())
+selected = st.sidebar.multiselect(
+    "Compare countries",
+    country_names,
+    default=["Iraq", "Italy", "Belgium"],
+)
+year_start, year_end = st.sidebar.slider(
+    "Year range", min_value=2000, max_value=2025, value=(2000, 2025)
 )
 
 if not selected:
-    st.warning("Please select at least one country.")
+    st.warning("Choose at least one country from the sidebar.")
     st.stop()
 
-filtered = df[df["Country"].isin(selected)].copy()
-
-# Summary metrics
-col1, col2 = st.columns(2)
-
-with col1:
-    st.metric("Selected Countries", len(selected))
-
-with col2:
-    st.metric("Available Data Points", len(filtered))
-
-# Line chart
-st.subheader("📈 Internet Usage Over Time")
-
-chart_data = filtered.pivot(
-    index="Year",
-    columns="Country",
-    values="Internet users (%)"
-).sort_index()
-
-st.line_chart(chart_data)
-
-st.caption(
-    "Percentage of individuals using the internet. "
-    "Missing years are not estimated."
-)
-
-# Latest available figures
-st.subheader("📊 Latest Available Data")
-
-latest = (
-    filtered.sort_values("Year")
-    .groupby("Country")
-    .tail(1)
-    .sort_values("Internet users (%)", ascending=False)
-)
-
-st.dataframe(
-    latest[["Country", "Year", "Internet users (%)"]],
-    hide_index=True
-)
-
-# Download data
-st.subheader("📥 Download Dataset")
-
-csv = filtered.sort_values(
-    ["Country", "Year"]
-).to_csv(index=False)
-
-st.download_button(
-    label="Download CSV",
-    data=csv,
-    file_name="internet_usage_data.csv",
-    mime="text/csv"
-)
-
-st.divider()
-
-st.caption(
-    "Data source: World Bank Open Data | "
-    "Indicator IT.NET.USER.ZS"
-)
+filtered = data.loc[
+    data["Country"].isin(selected) & data["Year"].between(year_start, year_end)
+].copy()
+if filtered.empty:
+    st.warning("No observations for this selection. Try a wider year range.")
