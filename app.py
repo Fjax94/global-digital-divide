@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # -----------------------------------------------------------------------------
@@ -37,6 +38,13 @@ COLORS = [
     "#39d9c5", "#70a8ff", "#c39cff", "#ffbf69", "#ff7f9f",
     "#a1db77", "#68d2ff", "#f5a4d6", "#f5d76e", "#a7b7ff",
 ]
+
+# Small standalone HTML slider: both thumb and red fill use the same LTR value.
+# This avoids contradictory positioning styles in the native BaseWeb slider.
+year_timeline_component = components.declare_component(
+    "digital_divide_year_timeline",
+    path=str(Path(__file__).resolve().parent / "year_slider"),
+)
 
 st.markdown(
     """
@@ -77,31 +85,6 @@ h1, h2, h3, h4 { color: #f2f7ff !important; }
 .app-subtitle { color: #aabed9; font-size: 1.02rem; margin-bottom: 1.1rem; }
 .section-note { color: #9db2ce; font-size: .87rem; margin-top: -.35rem; }
 .source-note { color: #9caec7; font-size: .82rem; }
-/* The track correctly moves left-to-right, but this deployment mirrors only
-   BaseWeb's thumb layer. Mirror that layer back, leaving the fill untouched.
-   The immediate thumb parent is targeted, not the track or the whole slider. */
-[data-testid="stSlider"] [data-baseweb="slider"] div:has(> [role="slider"]) {
-    transform: scaleX(-1);
-    transform-origin: center center;
-}
-[data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] > div {
-    transform: scaleX(-1);
-}
-[data-testid="stSlider"] [data-baseweb="slider"],
-[data-testid="stSlider"] [data-testid="stTickBar"] {
-    direction: ltr;
-}
-.year-ends {
-    display: flex;
-    flex-direction: row;
-    direction: ltr;
-    justify-content: space-between;
-    font-size: .82rem;
-    color: #afc3db;
-    margin-top: -.4rem;
-    margin-bottom: .75rem;
-}
-
 @media (max-width: 700px) {
     .block-container { padding-left: 1rem; padding-right: 1rem; }
     [data-testid="stMetric"] { padding: 12px; }
@@ -232,24 +215,27 @@ with st.sidebar:
     )
     st.markdown("#### 🕒 Explore by year")
     if min_year < max_year:
-        selected_year = st.slider(
-            "Year",
-            min_value=min_year,
-            max_value=max_year,
-            value=max_year,
-            step=1,
-            key="sidebar_year_v2",
-            help="Move right for newer years, or left for older years.",
+        if "timeline_year_v4" not in st.session_state:
+            st.session_state["timeline_year_v4"] = max_year
+        raw_selected_year = year_timeline_component(
+            min_year=min_year,
+            max_year=max_year,
+            value=int(st.session_state["timeline_year_v4"]),
+            default=int(st.session_state["timeline_year_v4"]),
+            key="year_timeline_v4",
         )
+        selected_year = int(
+            raw_selected_year
+            if raw_selected_year is not None
+            else st.session_state["timeline_year_v4"]
+        )
+        selected_year = max(min_year, min(max_year, selected_year))
+        if selected_year != st.session_state["timeline_year_v4"]:
+            st.session_state["timeline_year_v4"] = selected_year
+            st.rerun()
     else:
         selected_year = min_year
         st.caption(f"Only {min_year} is available in this dataset.")
-    st.markdown(
-        f'<div class="year-ends" dir="ltr">'
-        f'<span>{min_year} · Oldest</span>'
-        f'<span>Newest · {max_year}</span>'
-        f'</div>', unsafe_allow_html=True
-    )
     st.caption(f"Showing observations through **{selected_year}**")
 
     st.divider()
