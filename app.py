@@ -37,10 +37,10 @@ def load_data():
         url,
         params={
             "format": "json",
-            "per_page": 20000,
+            "per_page": 1000,
             "date": "2000:2025"
         },
-        timeout=30
+        timeout=(10, 60)
     )
     response.raise_for_status()
 
