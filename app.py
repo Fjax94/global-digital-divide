@@ -129,10 +129,24 @@ with st.sidebar:
         default=default_countries, max_selections=10,
         help="Choose up to 10 countries for a readable comparison.",
     )
-    year_start, year_end = st.slider(
-        "Year range", min_value=min_year, max_value=max_year,
-        value=(max(min_year, 2000), max_year), step=1,
-    )
+    # Use independent, chronological year selectors. This avoids
+    # the reversed-label rendering seen with the range slider.
+    st.markdown("**Year range**")
+    years = list(range(min_year, max_year + 1))
+    default_start = min(max(2000, min_year), max_year)
+    start_col, end_col = st.columns(2, gap="small")
+    with start_col:
+        year_start = st.selectbox(
+            "From", options=years,
+            index=years.index(default_start), key="year_start",
+        )
+    with end_col:
+        valid_end_years = [year for year in years if year >= year_start]
+        year_end = st.selectbox(
+            "To", options=valid_end_years,
+            index=len(valid_end_years) - 1, key="year_end",
+        )
+    st.caption(f"Older year (left): {year_start}  →  Newer year (right): {year_end}")
     st.caption(f"Dataset coverage: {min_year}–{max_year}. This is a saved CSV snapshot, not a live feed.")
     st.divider()
     st.markdown("**Data:** Individuals using the Internet (% of population)")
@@ -173,7 +187,12 @@ line_fig.update_layout(
     plot_bgcolor="rgba(0,0,0,0)", font_color="#d8e5f5",
     margin=dict(l=20, r=20, t=18, b=20), height=390,
     legend_title_text="", hovermode="x unified",
-    xaxis=dict(dtick=5, showgrid=False),
+    # Always display historical years from left (older) to right (newer).
+    xaxis=dict(
+        dtick=5, showgrid=False, autorange=False,
+        range=[year_start - 0.5, year_end + 0.5],
+        title="Year (oldest → newest)",
+    ),
     yaxis=dict(range=[0, 105], ticksuffix="%", gridcolor="#24354c"),
 )
 st.plotly_chart(line_fig, use_container_width=True)
