@@ -5,7 +5,13 @@
 **Python | Streamlit | Pandas | Plotly | Data Analytics | Data Visualization**
 
 [![GitHub Actions](https://github.com/Fjax94/global-digital-divide/actions/workflows/dashboard-checks.yml/badge.svg)](https://github.com/Fjax94/global-digital-divide/actions/workflows/dashboard-checks.yml)
+## 📸 Dashboard Preview
 
+### 1. Dashboard Overview
+![Dashboard Overview](dashboard-overview.png)
+
+### 2. Analytics and Map
+![Analytics and Map](analytics-and-map.png)
 ## 📌 Project Overview
 
 The **Global Digital Divide Dashboard** is an interactive data analytics application designed to explore and visualize internet adoption across countries and over time.
