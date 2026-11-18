@@ -77,52 +77,10 @@ h1, h2, h3, h4 { color: #f2f7ff !important; }
 .app-subtitle { color: #aabed9; font-size: 1.02rem; margin-bottom: 1.1rem; }
 .section-note { color: #9db2ce; font-size: .87rem; margin-top: -.35rem; }
 .source-note { color: #9caec7; font-size: .82rem; }
-/* Force the timeline to run from older years on the LEFT to newer on RIGHT.
-   This is intentionally independent of browser or page RTL settings. */
-.year-timeline, .year-timeline * {
-    direction: ltr !important;
-    unicode-bidi: isolate !important;
-}
-.year-timeline {
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    align-items: center;
-    width: 100%;
-    margin: .2rem 0 .3rem;
-    font-size: 1.05rem;
-    font-weight: 750;
-    color: #f1f7ff;
-}
-.year-timeline span:first-child { text-align: left !important; }
-.year-timeline span:last-child { text-align: right !important; }
-.year-direction {
-    display: flex !important;
-    direction: ltr !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    color: #9fb5cf;
-    font-size: .85rem;
-    margin-top: -.2rem;
-}
-.year-direction span { direction: ltr !important; unicode-bidi: isolate !important; }
-/* Streamlit's native interactive slider and its BaseWeb track. */
-[data-testid="stSlider"],
-[data-testid="stSlider"] > div,
-[data-testid="stSlider"] [data-baseweb="slider"] {
-    direction: ltr !important;
-    unicode-bidi: isolate !important;
-}
-[data-testid="stSlider"] [role="slider"] { direction: ltr !important; }
-[data-testid="stSlider"] [data-baseweb="slider"] > div { direction: ltr !important; }
-[data-testid="stSlider"] [data-testid="stTickBar"] { direction: ltr !important; }
+/* Native Streamlit slider CSS is intentionally unchanged to keep thumb and track aligned. */
 @media (max-width: 700px) {
     .block-container { padding-left: 1rem; padding-right: 1rem; }
     [data-testid="stMetric"] { padding: 12px; }
-    .year-direction { font-size: .73rem; }
 }
 </style>
 """,
@@ -235,12 +193,6 @@ except (OSError, UnicodeError, ValueError, pd.errors.ParserError) as exc:
 min_year = int(data["Year"].min())
 max_year = int(data["Year"].max())
 country_options = sorted(data["Country"].unique().tolist())
-initial_countries = [
-    name for name in ("Iraq", "Belgium", "Italy") if name in country_options
-]
-if not initial_countries:
-    initial_countries = country_options[:3]
-
 # -----------------------------------------------------------------------------
 # 3. Filters and a strictly left-to-right year timeline
 # -----------------------------------------------------------------------------
@@ -249,10 +201,28 @@ with st.sidebar:
     selected_countries = st.multiselect(
         "Compare countries",
         options=country_options,
-        default=initial_countries,
+        default=[],
+        key="country_picker_v2",
         max_selections=10,
         help="Choose up to 10 countries to compare.",
     )
+    st.markdown("#### 🕒 Explore by year")
+    if min_year < max_year:
+        selected_year = st.slider(
+            "Year",
+            min_value=min_year,
+            max_value=max_year,
+            value=max_year,
+            step=1,
+            key="sidebar_year_v2",
+            help="Move right for newer years, or left for older years.",
+        )
+    else:
+        selected_year = min_year
+        st.caption(f"Only {min_year} is available in this dataset.")
+    st.caption(f"Oldest: {min_year}  ·  Newest: {max_year}")
+    st.caption(f"Showing observations through **{selected_year}**")
+
     st.divider()
     st.markdown("**Dataset**")
     st.caption("Internet users (% of population)")
@@ -261,42 +231,28 @@ with st.sidebar:
     st.caption("Source: Our World in Data (ITU / World Bank)")
     st.caption("Offline CSV snapshot — no live API requests")
 
-st.markdown("### 🕒 Explore by year")
-st.markdown(
-    f'<div class="year-timeline" dir="ltr">'
-    f'<span>{min_year}</span><span>{max_year}</span></div>',
-    unsafe_allow_html=True,
-)
-if min_year < max_year:
-    selected_year = st.slider(
-        "Explore data through year",
-        min_value=min_year,
-        max_value=max_year,
-        value=max_year,
-        step=1,
-        label_visibility="collapsed",
-        key="selected_year",
-    )
-else:
-    selected_year = min_year
-    st.info(f"This CSV contains observations for only {min_year}.")
-
-st.markdown(
-    '<div class="year-direction" dir="ltr">'
-    '<span>← Older years (left)</span>'
-    '<span>Newer years (right) →</span>'
-    '</div>',
-    unsafe_allow_html=True,
-)
-st.caption(f"Viewing data up to **{selected_year}**. Some countries last reported in an earlier year.")
-
 # -----------------------------------------------------------------------------
 # 4. Summaries: use each country's latest actually reported observation
 # -----------------------------------------------------------------------------
+if not selected_countries:
+    st.info(
+        "👈 Select a country in **Compare countries** on the left to view its "
+        "internet access history, statistics, and world map. "
+        "Select more countries to compare them."
+    )
+    st.stop()
+
 world_latest = latest_observed(data, selected_year)
 selected_data = data.loc[
     data["Country"].isin(selected_countries) & (data["Year"] <= selected_year)
 ].copy()
+if selected_data.empty:
+    st.warning(
+        "No reported observations for these countries by the selected year. "
+        "Move the year slider to the right or choose another country."
+    )
+    st.stop()
+
 selected_latest = latest_observed(selected_data, selected_year)
 
 k1, k2, k3, k4 = st.columns(4)
@@ -309,71 +265,63 @@ k4.metric(
     help="Unweighted mean of the latest recorded values for selected countries, not a global average.",
 )
 
-if not selected_countries:
-    st.info("Choose at least one country in the sidebar to see comparison charts.")
-elif selected_data.empty:
-    st.warning(
-        "No recorded observations for the selected countries through this year. "
-        "Choose a later year or different countries."
-    )
-else:
-    # Timeline: always chronological left -> right.
-    st.markdown("### 📈 Internet access over time")
-    line = px.line(
-        selected_data.sort_values(["Country", "Year"]),
-        x="Year", y=METRIC, color="Country", markers=True,
-        color_discrete_sequence=COLORS,
-        hover_data={"Year": True, METRIC: ":.2f"},
-    )
-    line.update_traces(line=dict(width=3), marker=dict(size=5))
-    style_chart(line, height=400)
-    line.update_layout(hovermode="x unified")
-    line.update_xaxes(
-        title_text="Year (oldest → newest)",
-        autorange=False,
-        range=[min_year - 0.5, max(selected_year, min_year + 1) + 0.5],
-        dtick=max(1, (max_year - min_year) // 7),
-        showgrid=False,
-        zeroline=False,
-    )
-    line.update_yaxes(
-        title_text="Population using the internet (%)",
-        range=[0, 105], ticksuffix="%", gridcolor="#263a55", zeroline=False,
-    )
-    st.plotly_chart(line, use_container_width=True, theme=None)
+# Timeline: always chronological left -> right.
+st.markdown("### 📈 Internet access over time")
+line = px.line(
+    selected_data.sort_values(["Country", "Year"]),
+    x="Year", y=METRIC, color="Country", markers=True,
+    color_discrete_sequence=COLORS,
+    hover_data={"Year": True, METRIC: ":.2f"},
+)
+line.update_traces(line=dict(width=3), marker=dict(size=5))
+style_chart(line, height=400)
+line.update_layout(hovermode="x unified")
+line.update_xaxes(
+    title_text="Year (oldest → newest)",
+    autorange=False,
+    range=[min_year - 0.5, max(selected_year, min_year + 1) + 0.5],
+    dtick=max(1, (max_year - min_year) // 7),
+    showgrid=False,
+    zeroline=False,
+)
+line.update_yaxes(
+    title_text="Population using the internet (%)",
+    range=[0, 105], ticksuffix="%", gridcolor="#263a55", zeroline=False,
+)
+st.plotly_chart(line, use_container_width=True, theme=None)
 
-    left, right = st.columns(2, gap="large")
-    with left:
-        st.markdown("### 📊 Latest reported values")
-        bar_data = selected_latest.sort_values(METRIC, ascending=True)
-        bars = px.bar(
-            bar_data, x=METRIC, y="Country", orientation="h",
-            color="Country", color_discrete_sequence=COLORS,
-            text=METRIC,
-        )
-        bars.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-        style_chart(bars, height=max(315, 48 * len(bar_data) + 115))
-        bars.update_layout(showlegend=False, margin=dict(l=10, r=55, t=20, b=25))
-        bars.update_xaxes(range=[0, 110], ticksuffix="%", showgrid=False, title_text="")
-        bars.update_yaxes(title_text="")
-        st.plotly_chart(bars, use_container_width=True, theme=None)
-
-    with right:
-        st.markdown("### 📋 Country comparison")
-        display = selected_latest[["Country", "Year", METRIC]].copy()
-        display[METRIC] = display[METRIC].round(2)
-        st.dataframe(display, hide_index=True, use_container_width=True)
-        st.caption(
-            "Year is each country's latest observed year up to the selected cutoff. "
-            "Missing years are not estimated."
-        )
-
-    st.download_button(
-        "⬇️ Download selected country data (CSV)",
-        data=selected_data.sort_values(["Country", "Year"]).to_csv(index=False).encode("utf-8-sig"),
-        file_name="digital_divide_selected_data.csv",
-        mime="text/csv",
+left, right = st.columns(2, gap="large")
+with left:
+    st.markdown("### 📊 Latest reported values")
+    bar_data = selected_latest.sort_values(METRIC, ascending=True)
+    bars = px.bar(
+        bar_data, x=METRIC, y="Country", orientation="h",
+        color="Country", color_discrete_sequence=COLORS,
+        text=METRIC,
     )
+    bars.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
+    style_chart(bars, height=max(315, 48 * len(bar_data) + 115))
+    bars.update_layout(showlegend=False, margin=dict(l=10, r=55, t=20, b=25))
+    bars.update_xaxes(range=[0, 110], ticksuffix="%", showgrid=False, title_text="")
+    bars.update_yaxes(title_text="")
+    st.plotly_chart(bars, use_container_width=True, theme=None)
+
+with right:
+    st.markdown("### 📋 Country comparison")
+    display = selected_latest[["Country", "Year", METRIC]].copy()
+    display[METRIC] = display[METRIC].round(2)
+    st.dataframe(display, hide_index=True, use_container_width=True)
+    st.caption(
+        "Year is each country's latest observed year up to the selected cutoff. "
+        "Missing years are not estimated."
+    )
+
+st.download_button(
+    "⬇️ Download selected country data (CSV)",
+    data=selected_data.sort_values(["Country", "Year"]).to_csv(index=False).encode("utf-8-sig"),
+    file_name="digital_divide_selected_data.csv",
+    mime="text/csv",
+)
 
 # -----------------------------------------------------------------------------
 # 5. Map: all countries with available data through the selected year
