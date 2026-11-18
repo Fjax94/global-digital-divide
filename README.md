@@ -5,6 +5,13 @@
 **Python | Streamlit | Pandas | Plotly | Data Analytics | Data Visualization**
 
 [![GitHub Actions](https://github.com/Fjax94/global-digital-divide/actions/workflows/dashboard-checks.yml/badge.svg)](https://github.com/Fjax94/global-digital-divide/actions/workflows/dashboard-checks.yml)
+
+## 🚀 Live Demo
+
+**[🌐 Launch the Interactive Dashboard](https://global-digital-divide-fcgxc8x9ysmgbdnalsjtv9.streamlit.app/)**
+
+Explore internet adoption trends, compare countries, and interact with the world map directly in your browser.
+
 ## 📸 Dashboard Preview
 
 ### 1. Dashboard Overview
