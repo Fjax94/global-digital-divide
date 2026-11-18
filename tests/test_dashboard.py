@@ -28,14 +28,32 @@ def test_real_data_is_valid_and_growth_is_reproducible():
     assert round(float(latest.loc["Albania", metric] - first.loc["Albania", metric]), 1) == 56.9
     assert round(float(latest.loc["Costa Rica", metric]), 2) == 59.76
 
+def test_custom_year_slider_uses_one_ltr_scale_with_synchronized_fill():
+    source = APP.read_text(encoding="utf-8")
+    html = (ROOT / "year_slider" / "index.html").read_text(encoding="utf-8")
+    assert 'components.declare_component(' in source
+    assert 'year_timeline_component(' in source
+    assert 'st.slider(' not in source
+    assert '<html lang="en" dir="ltr">' in html
+    assert 'type="range"' in html
+    assert 'direction: ltr' in html
+    assert 'const center = thumbWidth / 2 + fraction * Math.max(0, width - thumbWidth)' in html
+    assert 'label.style.left = center + "px"' in html
+    assert 'center + "px, #36445b " + center' in html
+    assert 'streamlit:setComponentValue' in html
+    assert 'id="year-min"' in html and 'id="year-max"' in html
+
+
 def test_streamlit_starts_empty_and_renders_selected_countries():
     app = AppTest.from_file(str(APP), default_timeout=90).run()
     assert not app.exception, [x.message for x in app.exception]
     assert len(app.multiselect) == 1
     assert app.multiselect[0].value == []
-    assert len(app.slider) == 1
+    assert len(app.slider) == 0
 
     app.multiselect[0].set_value(["Albania", "Cuba", "Costa Rica"]).run()
-    app.slider[0].set_value(2015).run()
     assert not app.exception, [x.message for x in app.exception]
-    assert any(metric.label == "Selected countries" and str(metric.value) == "3" for metric in app.metric)
+    assert any(
+        metric.label == "Selected countries" and str(metric.value) == "3"
+        for metric in app.metric
+    )
