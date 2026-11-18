@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+:root { color-scheme: dark; }
+html, body { margin: 0; padding: 0; background: transparent; }
+body { font-family: "Source Sans Pro", system-ui, sans-serif; color: #f1f5fb; }
+.year-control { box-sizing: border-box; width: 100%; direction: ltr; padding: 0 8px 2px; }
+.year-title { font-size: 14px; font-weight: 600; margin-bottom: 20px; }
+.range-area { height: 24px; position: relative; width: 100%; }
+#year-slider { -webkit-appearance: none; appearance: none; width: 100%; display: block; height: 5px; border: 0; border-radius: 8px; outline: none; margin: 8px 0 0; cursor: pointer; direction: ltr; }
+#year-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; background: #e84e67; width: 16px; height: 16px; border-radius: 50%; border: 0; cursor: grab; box-shadow: 0 0 0 3px rgba(232,78,103,.2); }
+#year-slider::-moz-range-thumb { background: #e84e67; width: 16px; height: 16px; border-radius: 50%; border: 0; cursor: grab; box-shadow: 0 0 0 3px rgba(232,78,103,.2); }
+#year-slider:focus-visible { outline: 2px solid #72dacf; outline-offset: 6px; }
+#year-slider:active::-webkit-slider-thumb { cursor: grabbing; }
+#year-slider:active::-moz-range-thumb { cursor: grabbing; }
+#year-value { position: absolute; top: -22px; left: 8px; transform: translateX(-50%); color: #fa6379; font-size: 13px; font-weight: 700; white-space: nowrap; pointer-events: none; }
+.year-ends { display: flex; flex-direction: row; justify-content: space-between; direction: ltr; color: #aebed6; font-size: 13px; margin-top: 1px; }
+</style>
+</head>
+<body>
+<div class="year-control">
+  <div class="year-title">Year</div>
+  <div class="range-area">
+    <output for="year-slider" id="year-value">2025</output>
+    <input type="range" id="year-slider" min="1990" max="2025" value="2025" step="1" aria-label="Explore by year" />
+  </div>
+  <div class="year-ends"><span id="year-min">1990</span><span id="year-max">2025</span></div>
+</div>
+<script>
+(() => {
+  "use strict";
+  const slider = document.getElementById("year-slider");
+  const label = document.getElementById("year-value");
+  const minLabel = document.getElementById("year-min");
+  const maxLabel = document.getElementById("year-max");
+  let dragging = false;
+
+  function send(type, detail = {}) {
+    window.parent.postMessage({ isStreamlitMessage: true, type, ...detail }, "*");
+  }
+  function paint() {
+    const min = Number(slider.min);
+    const max = Number(slider.max);
+    const value = Number(slider.value);
+    const fraction = max === min ? 0 : (value - min) / (max - min);
+    const thumbWidth = 16;
+    const width = slider.getBoundingClientRect().width;
+    // The thumb's actual center is inset by half its width at the ends.
+    const center = thumbWidth / 2 + fraction * Math.max(0, width - thumbWidth);
+    slider.style.background = "linear-gradient(to right, #e84e67 0px, #e84e67 " + center + "px, #36445b " + center + "px, #36445b 100%)";
+    label.textContent = String(value);
+    label.style.left = center + "px";
+    slider.setAttribute("aria-valuetext", String(value));
+  }
+  function onRender(event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    const args = event.data.args || {};
+    const min = Number(args.min_year ?? 1990);
+    const max = Number(args.max_year ?? 2025);
+    const selected = Number(args.value ?? max);
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = "1";
+    if (!dragging) slider.value = String(Math.max(min, Math.min(max, selected)));
+    slider.disabled = !!event.data.disabled;
+    minLabel.textContent = String(min);
+    maxLabel.textContent = String(max);
+    paint();
+    send("streamlit:setFrameHeight", { height: Math.ceil(document.body.scrollHeight + 3) });
+  }
+  slider.addEventListener("pointerdown", () => { dragging = true; });
+  slider.addEventListener("pointerup", () => { dragging = false; });
+  slider.addEventListener("pointercancel", () => { dragging = false; });
+  slider.addEventListener("input", paint);
+  slider.addEventListener("change", () => {
+    dragging = false;
+    paint();
+    send("streamlit:setComponentValue", { dataType: "json", value: Number(slider.value) });
+  });
+  window.addEventListener("message", onRender);
+  window.addEventListener("resize", paint);
+  send("streamlit:componentReady", { apiVersion: 1 });
+  paint();
+})();
+</script>
+</body>
+</html>
