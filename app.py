@@ -1,7 +1,10 @@
-"""Global Digital Divide — an interactive, reproducible country dashboard.
+"""Global Digital Divide | Modern Dark Streamlit dashboard.
 
-Data: Our World in Data's Internet usage series (ITU / World Bank).
-The app reads internet_usage.csv locally and never requires a live API request.
+Source: Our World in Data, "Share of the population using the Internet"
+(original statistics from ITU / World Bank).
+
+Place internet_usage.csv next to this app.py. The app uses a local snapshot,
+so charts do not depend on remote APIs or unstable network connections.
 """
 
 from pathlib import Path
@@ -12,6 +15,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 
+# -----------------------------------------------------------------------------
+# 1. Settings and design
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Global Digital Divide | Data Explorer",
     page_icon="🌍",
@@ -19,238 +25,408 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Modern Dark design -----------------------------------------------------
-st.markdown(
-    """
-    <style>
-      .stApp {
-        background: radial-gradient(ellipse at 16% 0%, #142840 0%, #0b1424 45%, #080f1d 100%);
-        color: #e8effc;
-      }
-      section[data-testid="stSidebar"] {
-        background: #101c30;
-        border-right: 1px solid #243b56;
-      }
-      .block-container { padding-top: 2.3rem; padding-bottom: 3rem; }
-      h1, h2, h3 { color: #f1f6ff !important; }
-      div[data-testid="stMetric"] {
-        background: #15263c;
-        border: 1px solid #29425e;
-        border-radius: 14px;
-        padding: 14px 18px;
-      }
-      div[data-testid="stMetricLabel"] { color: #aebed6; }
-      div[data-testid="stMetricValue"] { color: #69e3d3; }
-      .app-kicker { color: #60e3d5; font-size: .85rem; font-weight: 650; letter-spacing: .13em; }
-      .app-subtitle { color: #abbdd6; font-size: 1rem; margin-top: -.4rem; }
-      .source-note { color: #9eafc8; font-size: .86rem; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 DATA_FILE = Path(__file__).resolve().parent / "internet_usage.csv"
 METRIC = "Internet users (%)"
 REQUIRED_COLUMNS = {"Entity", "Code", "Year"}
-PREFERRED_METRIC_COLUMN = "Share of the population using the Internet"
-CHART_COLORS = [
-    "#62dfcf", "#61aaff", "#c394fa", "#fbbf67", "#ff7f9c",
-    "#9fdb71", "#f48fbf", "#77c8fd", "#efd46a", "#bcaaff",
+POSSIBLE_METRIC_COLUMNS = (
+    "Share of the population using the Internet",
+    "Individuals using the Internet (% of population)",
+    "Internet users (% of population)",
+)
+COLORS = [
+    "#39d9c5", "#70a8ff", "#c39cff", "#ffbf69", "#ff7f9f",
+    "#a1db77", "#68d2ff", "#f5a4d6", "#f5d76e", "#a7b7ff",
 ]
 
+st.markdown(
+    """
+<style>
+:root { color-scheme: dark; }
+html, body, [data-testid="stAppViewContainer"], .stApp {
+    background: #080f1d !important;
+    color: #edf4ff;
+}
+.stApp {
+    background: radial-gradient(ellipse at 14% 0%, #182943 0%, #0d182b 42%, #080f1d 100%) !important;
+}
+[data-testid="stHeader"] { background: transparent !important; }
+[data-testid="stSidebar"] {
+    background: #101d30 !important;
+    border-right: 1px solid #263b56 !important;
+}
+.block-container { max-width: 1440px; padding-top: 2.0rem; padding-bottom: 2.8rem; }
+h1, h2, h3, h4 { color: #f2f7ff !important; }
+[data-testid="stMetric"] {
+    background: #13253b;
+    border: 1px solid #28415e;
+    border-radius: 16px;
+    padding: 16px 18px;
+}
+[data-testid="stMetricLabel"] { color: #a8bed8 !important; }
+[data-testid="stMetricValue"] { color: #73eadb !important; }
+[data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; }
+[data-testid="stAlert"] { border-radius: 12px; }
+.app-kicker {
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #65e2d4;
+    font-size: .78rem;
+    font-weight: 700;
+    margin-bottom: .45rem;
+}
+.app-subtitle { color: #aabed9; font-size: 1.02rem; margin-bottom: 1.1rem; }
+.section-note { color: #9db2ce; font-size: .87rem; margin-top: -.35rem; }
+.source-note { color: #9caec7; font-size: .82rem; }
+/* Force the timeline to run from older years on the LEFT to newer on RIGHT.
+   This is intentionally independent of browser or page RTL settings. */
+.year-timeline, .year-timeline * {
+    direction: ltr !important;
+    unicode-bidi: isolate !important;
+}
+.year-timeline {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center;
+    width: 100%;
+    margin: .2rem 0 .3rem;
+    font-size: 1.05rem;
+    font-weight: 750;
+    color: #f1f7ff;
+}
+.year-timeline span:first-child { text-align: left !important; }
+.year-timeline span:last-child { text-align: right !important; }
+.year-direction {
+    display: flex !important;
+    direction: ltr !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    color: #9fb5cf;
+    font-size: .85rem;
+    margin-top: -.2rem;
+}
+.year-direction span { direction: ltr !important; unicode-bidi: isolate !important; }
+/* Streamlit's native interactive slider and its BaseWeb track. */
+[data-testid="stSlider"],
+[data-testid="stSlider"] > div,
+[data-testid="stSlider"] [data-baseweb="slider"] {
+    direction: ltr !important;
+    unicode-bidi: isolate !important;
+}
+[data-testid="stSlider"] [role="slider"] { direction: ltr !important; }
+[data-testid="stSlider"] [data-baseweb="slider"] > div { direction: ltr !important; }
+[data-testid="stSlider"] [data-testid="stTickBar"] { direction: ltr !important; }
+@media (max-width: 700px) {
+    .block-container { padding-left: 1rem; padding-right: 1rem; }
+    [data-testid="stMetric"] { padding: 12px; }
+    .year-direction { font-size: .73rem; }
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
+
+# -----------------------------------------------------------------------------
+# 2. Load and validate the actual CSV (no API call, no invented observations)
+# -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def load_data(path_str: str, file_mtime: float) -> pd.DataFrame:
-    """Read the bundled CSV and validate its schema and numeric values."""
-    raw = pd.read_csv(path_str, encoding="utf-8-sig", low_memory=False)
+def load_data(csv_path: str, modified_ns: int, size_bytes: int) -> pd.DataFrame:
+    """Validate an OWID CSV; return one real observation per country/year."""
+    _ = (modified_ns, size_bytes)  # Cache invalidation when the file changes.
+    raw = pd.read_csv(csv_path, encoding="utf-8-sig", low_memory=False)
+    raw.columns = raw.columns.str.strip()
+
     missing = REQUIRED_COLUMNS.difference(raw.columns)
     if missing:
-        raise ValueError(f"Missing CSV columns: {', '.join(sorted(missing))}")
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
 
-    if PREFERRED_METRIC_COLUMN in raw.columns:
-        value_col = PREFERRED_METRIC_COLUMN
-    else:
-        candidates = [c for c in raw.columns if c not in REQUIRED_COLUMNS]
-        if len(candidates) != 1:
-            raise ValueError("Could not identify the internet-usage percentage column.")
-        value_col = candidates[0]
+    metric_column = next(
+        (name for name in POSSIBLE_METRIC_COLUMNS if name in raw.columns), None
+    )
+    if metric_column is None:
+        alternatives = [name for name in raw.columns if name not in REQUIRED_COLUMNS]
+        if len(alternatives) == 1:
+            metric_column = alternatives[0]
+        else:
+            raise ValueError(
+                "Could not find the internet usage column. "
+                f"Available columns: {', '.join(raw.columns)}"
+            )
 
-    data = raw[["Entity", "Code", "Year", value_col]].copy()
+    data = raw[["Entity", "Code", "Year", metric_column]].copy()
     data.columns = ["Country", "Code", "Year", METRIC]
-    data["Code"] = data["Code"].astype("string")
-    # OWID also publishes regional aggregates; exclude them from the country map.
-    data = data[data["Code"].str.fullmatch(r"[A-Z]{3}", na=False)].copy()
+    data["Code"] = data["Code"].astype("string").str.strip().str.upper()
+    data["Country"] = data["Country"].astype("string").str.strip()
     data["Year"] = pd.to_numeric(data["Year"], errors="coerce")
     data[METRIC] = pd.to_numeric(data[METRIC], errors="coerce")
-    data = data.dropna(subset=["Country", "Year", METRIC])
+
+    # OWID regional/world aggregates use non-ISO-3 identifiers: remove them.
+    data = data[data["Code"].str.fullmatch(r"[A-Z]{3}", na=False)].copy()
+    data = data.dropna(subset=["Country", "Code", "Year", METRIC])
     data = data[data[METRIC].between(0, 100)].copy()
-    data["Year"] = data["Year"].astype(int)
-    data = data.sort_values("Year").drop_duplicates(["Code", "Year"], keep="last")
-
     if data.empty:
-        raise ValueError("CSV contains no valid country internet-use observations.")
-    return data
+        raise ValueError("No valid country observations were found in the CSV.")
+
+    data["Year"] = data["Year"].astype(int)
+    data = data.sort_values(["Code", "Year"]).drop_duplicates(
+        subset=["Code", "Year"], keep="last"
+    )
+    return data.sort_values(["Country", "Year"]).reset_index(drop=True)
 
 
-@st.cache_data(show_spinner=False)
-def latest_by_country(data: pd.DataFrame, end_year: int) -> pd.DataFrame:
-    """Last *observed* value through end_year (no imputation)."""
-    within_period = data[data["Year"] <= end_year]
-    return (within_period.sort_values("Year")
-            .drop_duplicates("Code", keep="last")
-            .sort_values(METRIC, ascending=False)
-            .copy())
+def latest_observed(data: pd.DataFrame, through_year: int) -> pd.DataFrame:
+    """Use observed data only; never interpolate or fill missing years."""
+    subset = data.loc[data["Year"] <= through_year].copy()
+    if subset.empty:
+        return subset
+    return (
+        subset.sort_values(["Code", "Year"])
+        .drop_duplicates("Code", keep="last")
+        .sort_values(METRIC, ascending=False)
+        .reset_index(drop=True)
+    )
 
 
-st.markdown('<div class="app-kicker">DATA SCIENCE PORTFOLIO · INTERACTIVE ANALYTICS</div>',
-            unsafe_allow_html=True)
+def style_chart(fig: go.Figure, height: int = 390) -> go.Figure:
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#dbe8fa", size=12),
+        height=height,
+        margin=dict(l=16, r=22, t=22, b=28),
+        legend_title_text="",
+        hoverlabel=dict(bgcolor="#16283f", font_color="#f1f7ff"),
+    )
+    return fig
+
+
+st.markdown(
+    '<div class="app-kicker">DATA SCIENCE PORTFOLIO · INTERACTIVE ANALYTICS</div>',
+    unsafe_allow_html=True,
+)
 st.title("🌍 Global Digital Divide")
-st.markdown('<div class="app-subtitle">Explore how internet access has changed across countries.</div>',
-            unsafe_allow_html=True)
+st.markdown(
+    '<div class="app-subtitle">Explore how internet access has changed around the world.</div>',
+    unsafe_allow_html=True,
+)
 
-if not DATA_FILE.exists():
-    st.error("The dataset `internet_usage.csv` is missing. Upload it next to `app.py` on GitHub.")
+if not DATA_FILE.is_file():
+    st.error("Missing dataset: `internet_usage.csv`.")
+    st.info(
+        "Add the original `internet_usage.csv` file to the same GitHub folder "
+        "as `app.py`, then redeploy. The dashboard cannot show real observations "
+        "without the dataset."
+    )
     st.stop()
 
 try:
-    data = load_data(str(DATA_FILE), DATA_FILE.stat().st_mtime)
+    info = DATA_FILE.stat()
+    data = load_data(str(DATA_FILE), info.st_mtime_ns, info.st_size)
 except (OSError, UnicodeError, ValueError, pd.errors.ParserError) as exc:
-    st.error(f"Could not read `internet_usage.csv`: {exc}")
+    st.error(f"Could not load `internet_usage.csv`: {exc}")
+    st.info("Verify the filename and CSV headers, then commit the corrected CSV to GitHub.")
     st.stop()
 
-min_year, max_year = int(data["Year"].min()), int(data["Year"].max())
-countries = sorted(data["Country"].unique().tolist())
-default_countries = [name for name in ["Iraq", "Italy", "Belgium"] if name in countries]
+min_year = int(data["Year"].min())
+max_year = int(data["Year"].max())
+country_options = sorted(data["Country"].unique().tolist())
+initial_countries = [
+    name for name in ("Iraq", "Belgium", "Italy") if name in country_options
+]
+if not initial_countries:
+    initial_countries = country_options[:3]
 
+# -----------------------------------------------------------------------------
+# 3. Filters and a strictly left-to-right year timeline
+# -----------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ Explore data")
-    selected = st.multiselect(
-        "Compare countries", options=countries,
-        default=default_countries, max_selections=10,
-        help="Choose up to 10 countries for a readable comparison.",
+    selected_countries = st.multiselect(
+        "Compare countries",
+        options=country_options,
+        default=initial_countries,
+        max_selections=10,
+        help="Choose up to 10 countries to compare.",
     )
-    # Use independent, chronological year selectors. This avoids
-    # the reversed-label rendering seen with the range slider.
-    st.markdown("**Year range**")
-    years = list(range(min_year, max_year + 1))
-    default_start = min(max(2000, min_year), max_year)
-    start_col, end_col = st.columns(2, gap="small")
-    with start_col:
-        year_start = st.selectbox(
-            "From", options=years,
-            index=years.index(default_start), key="year_start",
-        )
-    with end_col:
-        valid_end_years = [year for year in years if year >= year_start]
-        year_end = st.selectbox(
-            "To", options=valid_end_years,
-            index=len(valid_end_years) - 1, key="year_end",
-        )
-    st.caption(f"Older year (left): {year_start}  →  Newer year (right): {year_end}")
-    st.caption(f"Dataset coverage: {min_year}–{max_year}. This is a saved CSV snapshot, not a live feed.")
     st.divider()
-    st.markdown("**Data:** Individuals using the Internet (% of population)")
-    st.caption("Source: ITU / World Bank, published via Our World in Data.")
+    st.markdown("**Dataset**")
+    st.caption("Internet users (% of population)")
+    st.caption(f"Recorded period: {min_year}–{max_year}")
+    st.caption(f"Countries with data: {data['Code'].nunique():,}")
+    st.caption("Source: Our World in Data (ITU / World Bank)")
+    st.caption("Offline CSV snapshot — no live API requests")
 
-st.caption(f"Data snapshot covers years {min_year}–{max_year}; country reporting years may differ.")
+st.markdown("### 🕒 Explore by year")
+st.markdown(
+    f'<div class="year-timeline" dir="ltr">'
+    f'<span>{min_year}</span><span>{max_year}</span></div>',
+    unsafe_allow_html=True,
+)
+if min_year < max_year:
+    selected_year = st.slider(
+        "Explore data through year",
+        min_value=min_year,
+        max_value=max_year,
+        value=max_year,
+        step=1,
+        label_visibility="collapsed",
+        key="selected_year",
+    )
+else:
+    selected_year = min_year
+    st.info(f"This CSV contains observations for only {min_year}.")
 
-if not selected:
-    st.info("Select at least one country in the left sidebar to display the dashboard.")
-    st.stop()
+st.markdown(
+    '<div class="year-direction" dir="ltr">'
+    '<span>← Older years (left)</span>'
+    '<span>Newer years (right) →</span>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+st.caption(f"Viewing data up to **{selected_year}**. Some countries last reported in an earlier year.")
 
-filtered = data[
-    data["Country"].isin(selected) & data["Year"].between(year_start, year_end)
+# -----------------------------------------------------------------------------
+# 4. Summaries: use each country's latest actually reported observation
+# -----------------------------------------------------------------------------
+world_latest = latest_observed(data, selected_year)
+selected_data = data.loc[
+    data["Country"].isin(selected_countries) & (data["Year"] <= selected_year)
 ].copy()
-if filtered.empty:
-    st.warning("No reported data for those countries and dates. Try a wider year range.")
-    st.stop()
+selected_latest = latest_observed(selected_data, selected_year)
 
-latest_selected = latest_by_country(filtered, year_end)
-world_latest = latest_by_country(data, year_end)
-
-# --- KPI row ----------------------------------------------------------------
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("Countries selected", len(selected))
-kpi2.metric("Data observations", f"{len(filtered):,}")
-kpi3.metric("Most recent year", int(latest_selected["Year"].max()))
-kpi4.metric("Global countries shown", f"{len(world_latest):,}")
-
-st.markdown("### 📈 Internet access over time")
-line_fig = px.line(
-    filtered.sort_values("Year"), x="Year", y=METRIC,
-    color="Country", markers=True, color_discrete_sequence=CHART_COLORS,
-    hover_data={METRIC: ":.2f", "Year": True},
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Selected countries", len(selected_countries))
+k2.metric("Observations", f"{len(selected_data):,}")
+k3.metric("Countries on map", f"{len(world_latest):,}")
+k4.metric(
+    "Selected-country average",
+    f"{selected_latest[METRIC].mean():.1f}%" if not selected_latest.empty else "—",
+    help="Unweighted mean of the latest recorded values for selected countries, not a global average.",
 )
-line_fig.update_traces(line_width=3, marker_size=5)
-line_fig.update_layout(
-    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)", font_color="#d8e5f5",
-    margin=dict(l=20, r=20, t=18, b=20), height=390,
-    legend_title_text="", hovermode="x unified",
-    # Always display historical years from left (older) to right (newer).
-    xaxis=dict(
-        dtick=5, showgrid=False, autorange=False,
-        range=[year_start - 0.5, year_end + 0.5],
-        title="Year (oldest → newest)",
-    ),
-    yaxis=dict(range=[0, 105], ticksuffix="%", gridcolor="#24354c"),
-)
-st.plotly_chart(line_fig, use_container_width=True)
 
-left, right = st.columns([1, 1], gap="large")
-with left:
-    st.markdown("### 📊 Latest reported values")
-    bars = px.bar(
-        latest_selected.sort_values(METRIC), x=METRIC, y="Country",
-        orientation="h", color="Country", color_discrete_sequence=CHART_COLORS,
-        text=METRIC,
+if not selected_countries:
+    st.info("Choose at least one country in the sidebar to see comparison charts.")
+elif selected_data.empty:
+    st.warning(
+        "No recorded observations for the selected countries through this year. "
+        "Choose a later year or different countries."
     )
-    bars.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-    bars.update_layout(
-        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)", font_color="#d8e5f5",
-        showlegend=False, height=350,
-        margin=dict(l=5, r=55, t=10, b=15),
-        xaxis=dict(range=[0, 110], ticksuffix="%", showgrid=False),
-        yaxis=dict(title=""),
+else:
+    # Timeline: always chronological left -> right.
+    st.markdown("### 📈 Internet access over time")
+    line = px.line(
+        selected_data.sort_values(["Country", "Year"]),
+        x="Year", y=METRIC, color="Country", markers=True,
+        color_discrete_sequence=COLORS,
+        hover_data={"Year": True, METRIC: ":.2f"},
     )
-    st.plotly_chart(bars, use_container_width=True)
+    line.update_traces(line=dict(width=3), marker=dict(size=5))
+    style_chart(line, height=400)
+    line.update_layout(hovermode="x unified")
+    line.update_xaxes(
+        title_text="Year (oldest → newest)",
+        autorange=False,
+        range=[min_year - 0.5, max(selected_year, min_year + 1) + 0.5],
+        dtick=max(1, (max_year - min_year) // 7),
+        showgrid=False,
+        zeroline=False,
+    )
+    line.update_yaxes(
+        title_text="Population using the internet (%)",
+        range=[0, 105], ticksuffix="%", gridcolor="#263a55", zeroline=False,
+    )
+    st.plotly_chart(line, use_container_width=True, theme=None)
 
-with right:
-    st.markdown("### 📋 Country comparison")
-    table = latest_selected[["Country", "Year", METRIC]].copy()
-    table[METRIC] = table[METRIC].round(2)
-    st.dataframe(table, hide_index=True, use_container_width=True)
-    st.caption("Each country shows its latest *available* year within your selection; missing years are never estimated.")
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("### 📊 Latest reported values")
+        bar_data = selected_latest.sort_values(METRIC, ascending=True)
+        bars = px.bar(
+            bar_data, x=METRIC, y="Country", orientation="h",
+            color="Country", color_discrete_sequence=COLORS,
+            text=METRIC,
+        )
+        bars.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
+        style_chart(bars, height=max(315, 48 * len(bar_data) + 115))
+        bars.update_layout(showlegend=False, margin=dict(l=10, r=55, t=20, b=25))
+        bars.update_xaxes(range=[0, 110], ticksuffix="%", showgrid=False, title_text="")
+        bars.update_yaxes(title_text="")
+        st.plotly_chart(bars, use_container_width=True, theme=None)
 
+    with right:
+        st.markdown("### 📋 Country comparison")
+        display = selected_latest[["Country", "Year", METRIC]].copy()
+        display[METRIC] = display[METRIC].round(2)
+        st.dataframe(display, hide_index=True, use_container_width=True)
+        st.caption(
+            "Year is each country's latest observed year up to the selected cutoff. "
+            "Missing years are not estimated."
+        )
+
+    st.download_button(
+        "⬇️ Download selected country data (CSV)",
+        data=selected_data.sort_values(["Country", "Year"]).to_csv(index=False).encode("utf-8-sig"),
+        file_name="digital_divide_selected_data.csv",
+        mime="text/csv",
+    )
+
+# -----------------------------------------------------------------------------
+# 5. Map: all countries with available data through the selected year
+# -----------------------------------------------------------------------------
 st.markdown("### 🗺️ World map")
-st.caption(f"Latest available observation per country through {year_end}; reporting years may vary.")
-map_fig = go.Figure(go.Choropleth(
-    locations=world_latest["Code"], z=world_latest[METRIC],
-    text=world_latest["Country"], customdata=world_latest["Year"],
-    locationmode="ISO-3", zmin=0, zmax=100,
-    colorscale=[[0, "#182a4e"], [0.28, "#316fa2"], [0.65, "#3fc5c0"], [1, "#a1f7c8"]],
-    marker_line_color="#17273c", marker_line_width=0.35,
-    colorbar=dict(title="Internet use (%)", tickcolor="#b3c4d9", tickfont_color="#cbd9ea"),
-    hovertemplate="<b>%{text}</b><br>%{z:.1f}% using internet<br>Reported: %{customdata}<extra></extra>",
-))
-map_fig.update_geos(showframe=False, showcoastlines=False, showland=True,
-                    landcolor="#203048", bgcolor="rgba(0,0,0,0)",
-                    projection_type="natural earth")
-map_fig.update_layout(template="plotly_dark", height=470,
-                      paper_bgcolor="rgba(0,0,0,0)",
-                      margin=dict(l=0, r=0, t=0, b=0))
-st.plotly_chart(map_fig, use_container_width=True)
-
-st.download_button(
-    "⬇️ Download selected country data (CSV)",
-    data=filtered.sort_values(["Country", "Year"]).to_csv(index=False).encode("utf-8"),
-    file_name="digital_divide_selected_data.csv", mime="text/csv",
+st.markdown(
+    '<div class="section-note">Latest observed internet-use percentage per country '
+    'through the selected year. Reporting years may differ.</div>',
+    unsafe_allow_html=True,
 )
+
+if world_latest.empty:
+    st.warning("No geographic observations exist before this year in the CSV.")
+else:
+    map_fig = go.Figure(
+        go.Choropleth(
+            locations=world_latest["Code"],
+            z=world_latest[METRIC],
+            text=world_latest["Country"],
+            customdata=world_latest["Year"],
+            locationmode="ISO-3",
+            zmin=0, zmax=100,
+            colorscale=[
+                [0.0, "#1a2a49"], [0.25, "#315c91"],
+                [0.55, "#259bad"], [0.80, "#42d4bd"], [1.0, "#a5f3db"],
+            ],
+            marker_line_color="#15263c",
+            marker_line_width=0.35,
+            colorbar=dict(
+                title=dict(text="Internet use (%)"),
+                tickfont=dict(color="#cbd9ea"),
+                ticksuffix="%",
+            ),
+            hovertemplate=(
+                "<b>%{text}</b><br>Internet use: %{z:.1f}%"
+                "<br>Recorded year: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    style_chart(map_fig, height=480)
+    map_fig.update_geos(
+        showframe=False, showcoastlines=False, showland=True,
+        landcolor="#1e304b", bgcolor="rgba(0,0,0,0)",
+        projection_type="natural earth",
+    )
+    map_fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    st.plotly_chart(map_fig, use_container_width=True, theme=None)
+
 st.divider()
 st.markdown(
-    '<div class="source-note">Data source: Our World in Data — Individuals using the Internet '
-    '(ITU / World Bank WDI). Offline snapshot in the GitHub repository; no live API calls. '
-    'This dashboard provides descriptive analysis, not causal claims.</div>',
+    '<div class="source-note">Data source: Our World in Data — Individuals using '
+    'the Internet (ITU / World Bank). A local CSV snapshot is used: the selected '
+    'year is a cutoff, not a claim that every country reported in that year. '
+    'The dashboard provides descriptive comparisons, not causal conclusions.</div>',
     unsafe_allow_html=True,
 )
